@@ -1,0 +1,11 @@
+year;title;studios;producers;winner
+2000;Movie A1;Studio;Producer A;yes
+2001;Movie A2;Studio;Producer A;yes
+2010;Movie B1;Studio;Producer B;yes
+2011;Movie B2;Studio;Producer B;yes
+1900;Movie C1;Studio;Producer C;yes
+1999;Movie C2;Studio;Producer C;yes
+2000;Movie D1;Studio;Producer D;yes
+2099;Movie D2;Studio;Producer D;yes
+2005;Movie E1;Studio;Producer E;yes
+2003;Movie F1;Studio;Producer F;
