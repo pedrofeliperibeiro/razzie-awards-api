@@ -17,10 +17,11 @@ import java.util.TreeSet;
  * venceram, descobrir quem teve o menor e quem teve o maior intervalo entre dois
  * prêmios consecutivos.
  *
- * <p>O fluxo é em três passos: agrupo os anos de vitória por produtor, calculo os
- * intervalos entre prêmios seguidos, e no fim filtro quem ficou com o menor e o
- * maior. Deixei tudo em memória de propósito — são poucos vencedores, não vale a
- * pena complicar com query.
+ * <p>O fluxo é em dois passos: agrupo os anos de vitória por produtor e, numa única
+ * passada, jogo cada intervalo num {@link TreeMap} indexado pelo próprio valor do
+ * intervalo. Como o TreeMap mantém as chaves ordenadas, o menor intervalo é o
+ * {@code firstKey} e o maior é o {@code lastKey} — leio os dois direto, sem
+ * varreduras extras. Deixei tudo em memória de propósito: são poucos vencedores.
  */
 @Service
 public class AwardIntervalService {
@@ -37,27 +38,22 @@ public class AwardIntervalService {
         // Passo 1: produtor -> anos em que venceu (já ordenados e sem repetição).
         Map<String, TreeSet<Integer>> winYearsByProducer = groupWinYearsByProducer();
 
-        // Passo 2: pra cada produtor, gero os intervalos entre prêmios consecutivos
-        // e jogo todos num saco só.
-        List<AwardInterval> allIntervals = new ArrayList<>();
-        for (Map.Entry<String, TreeSet<Integer>> entry : winYearsByProducer.entrySet()) {
-            allIntervals.addAll(intervalsFor(entry.getKey(), entry.getValue()));
-        }
+        // Passo 2: numa passada só, agrupo os intervalos pelo VALOR de cada um.
+        // O TreeMap mantém as chaves ordenadas, então depois pego menor/maior direto.
+        TreeMap<Integer, List<AwardInterval>> intervalsByValue = new TreeMap<>();
+        winYearsByProducer.forEach((producer, years) ->
+                collectIntervals(producer, years, intervalsByValue));
 
-        // Caso ninguém tenha vencido duas vezes, não há intervalo nenhum. Devolvo
-        // listas vazias em vez de deixar o getAsInt() lá embaixo estourar.
-        if (allIntervals.isEmpty()) {
+        // Ninguém venceu duas vezes -> não há intervalo. Devolvo listas vazias.
+        if (intervalsByValue.isEmpty()) {
             return new AwardIntervalResult(List.of(), List.of());
         }
 
-        // Passo 3: acho o menor e o maior valor de intervalo...
-        int minInterval = allIntervals.stream().mapToInt(AwardInterval::interval).min().getAsInt();
-        int maxInterval = allIntervals.stream().mapToInt(AwardInterval::interval).max().getAsInt();
-
-        // ...e devolvo TODOS que empataram nesses valores (por isso são listas).
+        // Menor = primeira chave, maior = última. Acesso O(log n), sem nova varredura,
+        // e cada balde já traz TODOS os produtores que empataram naquele valor.
         return new AwardIntervalResult(
-                intervalsWithValue(allIntervals, minInterval),
-                intervalsWithValue(allIntervals, maxInterval)
+                intervalsByValue.get(intervalsByValue.firstKey()),
+                intervalsByValue.get(intervalsByValue.lastKey())
         );
     }
 
@@ -85,31 +81,23 @@ public class AwardIntervalService {
     }
 
     /**
-     * Dado um produtor e seus anos de vitória já ordenados, gera um intervalo pra
-     * cada par de prêmios seguidos. Repara que é par a par ({@code ano[i] -
-     * ano[i-1]}), não o maior menos o menor — um produtor pode ter vários intervalos.
+     * Para um produtor e seus anos já ordenados, gera um intervalo por par de prêmios
+     * consecutivos ({@code ano[i] - ano[i-1]}) e já o coloca no balde do seu valor.
+     * É par a par, não o maior menos o menor — um produtor pode ter vários intervalos.
      */
-    private List<AwardInterval> intervalsFor(String producer, TreeSet<Integer> sortedYears) {
-        // Com menos de duas vitórias não dá pra falar em intervalo.
+    private void collectIntervals(String producer, TreeSet<Integer> sortedYears,
+                                  Map<Integer, List<AwardInterval>> intervalsByValue) {
         if (sortedYears.size() < 2) {
-            return List.of();
+            return;
         }
-
         List<Integer> years = new ArrayList<>(sortedYears);
-        List<AwardInterval> intervals = new ArrayList<>();
         for (int i = 1; i < years.size(); i++) {
             int previousWin = years.get(i - 1);
             int followingWin = years.get(i);
-            intervals.add(new AwardInterval(producer, followingWin - previousWin, previousWin, followingWin));
+            int interval = followingWin - previousWin;
+            intervalsByValue
+                    .computeIfAbsent(interval, key -> new ArrayList<>())
+                    .add(new AwardInterval(producer, interval, previousWin, followingWin));
         }
-        return intervals;
-    }
-
-    // Filtra os intervalos que bateram exatamente no valor que eu quero (o menor ou
-    // o maior). É isso que me garante pegar todos os empates.
-    private List<AwardInterval> intervalsWithValue(List<AwardInterval> intervals, int value) {
-        return intervals.stream()
-                .filter(interval -> interval.interval() == value)
-                .toList();
     }
 }
